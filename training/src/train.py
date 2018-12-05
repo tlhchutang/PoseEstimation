@@ -39,18 +39,18 @@ def get_input(batchsize, epoch, is_train=True):
 
 
 def get_loss_and_output(model, batchsize, input_image, input_heat, reuse_variables=None):
-    losses = []
+	losses = []
 
-    with tf.variable_scope(tf.get_variable_scope(), reuse=reuse_variables):
-        _, pred_heatmaps_all = get_network(model, input_image, True)
+	with tf.variable_scope(tf.get_variable_scope(), reuse=reuse_variables):
+		_, pred_heatmaps_all = get_network(model, input_image, True)
+	
+	for idx, pred_heat in enumerate(pred_heatmaps_all):
+		loss_l2 = tf.nn.l2_loss(tf.concat(pred_heat, axis=0) - input_heat, name='loss_heatmap_stage%d' % idx)
+		losses.append(loss_l2)
 
-    for idx, pred_heat in enumerate(pred_heatmaps_all):
-        loss_l2 = tf.nn.l2_loss(tf.concat(pred_heat, axis=0) - input_heat, name='loss_heatmap_stage%d' % idx)
-        losses.append(loss_l2)
-
-    total_loss = tf.reduce_sum(losses) / batchsize
-    total_loss_ll_heat = tf.reduce_sum(loss_l2) / batchsize
-    return total_loss, total_loss_ll_heat, pred_heat
+	total_loss = tf.reduce_sum(losses) / batchsize
+	total_loss_ll_heat = tf.reduce_sum(loss_l2) / batchsize
+	return total_loss, total_loss_ll_heat, pred_heat
 
 
 def average_gradients(tower_grads):
@@ -115,6 +115,9 @@ def main(argv=None):
         input_image, input_heat = get_input(params['batchsize'], params['max_epoch'], is_train=True)
         valid_input_image, valid_input_heat = get_input(params['batchsize'], params['max_epoch'], is_train=False)
 
+        #shape = input_heat.get_shape()
+        #print(shape)
+	
         global_step = tf.Variable(0, trainable=False)
         learning_rate = tf.train.exponential_decay(float(params['lr']), global_step,
                                                    decay_steps=10000, decay_rate=float(params['decay_rate']), staircase=True)
