@@ -394,20 +394,32 @@ def main(argv=None):
         pred_result_image = tf.placeholder(tf.float32, shape=[params['val_batchsize'], 480, 640, 3])
         pred_result__summary = tf.summary.image("pred_result_image", pred_result_image, params['val_batchsize'])
 
+
+        #for resume a training
+        checkpoint_saver = tf.train.Saver(max_to_keep=0)
+        resume = params['resume']
+
         init = tf.global_variables_initializer()
         config = tf.ConfigProto()
         # occupy gpu gracefully
         config.gpu_options.allow_growth = True
         with tf.Session(config=config) as sess:
-            init.run()
+            if resume:
+                last_checkpoint = tf.train.latest_checkpoint(params['checkpoint'])
+                print ('Restoring from checkpoint: {}'.format(last_checkpoint))
+                checkpoint_saver.restore(sess, last_checkpoint)
+            else:
+                init.run()
 
             coord = tf.train.Coordinator()
             threads = tf.train.start_queue_runners(sess=sess, coord=coord)
+            
+            start_step = sess.run(global_step)
 
             summary_writer = tf.summary.FileWriter(os.path.join(params['logpath'], training_name), sess.graph)
             total_step_num = params['num_train_samples'] * params['max_epoch'] // (params['batchsize'] * params['gpus'])
             print("Start training...")
-            for step in range(total_step_num):
+            for idx in range(start_step, total_step_num):
                 start_time = time.time()
                 
                 #fetch training data
@@ -424,8 +436,8 @@ def main(argv=None):
                 #_, loss_value, lh_loss, in_image, in_heat, p_heat = sess.run(
                 #    [train_op, loss, last_heat_loss, input_image, input_heat, pred_heat]
                 #)
-                _, merge_op, loss_value, lh_loss, p_heat = sess.run(
-                    [train_op, summary_merge_op, loss, last_heat_loss, pred_heat], feed_dict = feed_dict)
+                _, merge_op, loss_value, lh_loss, p_heati, step = sess.run(
+                    [train_op, summary_merge_op, loss, last_heat_loss, pred_heat, global_step], feed_dict = feed_dict)
                
                 duration = time.time() - start_time
 
