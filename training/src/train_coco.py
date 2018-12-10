@@ -28,11 +28,14 @@ from dataset_prepare import CocoPose
 from dataset_augment import set_network_input_wh, set_network_scale
 import math
 import cv2
+import random
 
 r_mean = 118.06
 g_mean = 113.75
 b_mean = 106.56
 norm_scale = 0.176
+
+is_rgb = False
 
 '''
 def get_input(batchsize, epoch, is_train=True):
@@ -100,6 +103,74 @@ keys_to_features = {
 		tf.VarLenFeature(tf.int64)
   }
 
+def find_min_max(kp_x, kp_y):
+	valid_kp_x = []
+	valid_kp_y = []
+	#filter the invisible keypoints
+	for idx in range(0, len(kp_x)):
+		if kp_x[idx] >= 0 and kp_y[idx] >= 0:
+			valid_kp_x.append(kp_x[idx])
+			valid_kp_y.append(kp_y[idx])
+
+
+	x_min = np.amin(valid_kp_x)
+	x_max = np.amax(valid_kp_x)
+	y_min = np.amin(valid_kp_y)
+	y_max = np.amax(valid_kp_y)
+	return x_min, x_max, y_min, y_max
+
+def random_crop(image, kp_x, kp_y):
+	random_ratio_left = random.uniform(0, 1)
+	random_ratio_top =  random.uniform(0, 1)
+	random_ratio_right = random.uniform(0, 1)
+	random_ratio_bottom = random.uniform(0, 1)
+	x_min, x_max, y_min, y_max = find_min_max(kp_x, kp_y)
+	w = x_max - x_min
+	h = y_max - y_min
+
+	w_ratio = w / image.shape[1]
+	h_ratio = h / imgae.shape[0]
+	#0.645 = 1 / 1.55, 1.55 is the padding factor when cropping the instance
+	if w_ratio < 0.645 or h_ratio < 0.645:
+		x_min = image.shape[1] * 0.355 * 0.5
+		x_max = x_min + image.shape[1] * 0.645
+		y_min = image.shape[0] * 0.355 * 0.5
+		y_max = y_min + image.shape[0] * 0.645
+
+	#generate a random left value in range(0, x_min), right value in range(x_max, image.shape[1])
+	#top value in range(0, y_min), bottom value in range(y_max, image.shape[0])
+	left = x_min * random_ratio_left
+	right = x_max + (image.shape[1] - x_max) * random_ratio_right
+	top = y_min * random_ratio_top
+	bottom = y_max + (image.shape[0] - y_max) * random_ratio_bottom
+	
+	if right > image.shape[1]:
+		right = image.shape[1] - 1
+	if bottom > image.shape[0]:
+		bottom = image.shape[0] - 1
+
+	#todo: resize the cropped image, and keypoints coordinates			
+	#return image[top:bottom, left:right], new_kp_x, new_kp_y
+	x_factor = image.shape[1] / (right - left)
+	y_factor = image.shape[0] / (bottom - top)
+	cropped_image = cv2.resize(image[top:bottom, left:right], (image.shape[0], image.shape[1]))
+	
+
+
+	new_kp_x = []
+	new_kp_y = []
+	for idx in range(0, len(kp_x)):
+		if(kp_x[idx] < left or kp_y[idx] < top or kp_x[idx] > right or kp_y[idx] > bottom):
+			new_kp_x.append(-1)
+			new_kp_y.append(-1)
+		else:
+			new_kp_x.append((kp_x[idx] - x_min) * x_factor)
+			new_kp_y.append((kp_y[idx] - y_min) * y_factor)
+
+	return cropped_image, new_kp_x, new_kp_y
+	
+
+
 
 def put_heatmap(heatmap, plane_idx, center, sigma):
 	center_x, center_y = center
@@ -129,7 +200,7 @@ def put_heatmap(heatmap, plane_idx, center, sigma):
 target_size = 96
 input_height = 192
 input_width = 192
-def generate_heatmap(height, width, dense_tensor_x, dense_tensor_y):
+def generate_heatmap(raw_height, raw_width, height, width, dense_tensor_x, dense_tensor_y):
 	'''
 	heatmap = np.zeros((17, height, width), dtype=np.float32)
 	for idx in range(0, len(dense_tensor_x)):
@@ -144,13 +215,14 @@ def generate_heatmap(height, width, dense_tensor_x, dense_tensor_y):
 		heatmap = cv2.resize(heatmap, (target_size, target_size), interpolation=cv2.INTER_NEAREST)
 	'''
 	#directly generate resized heatmap
-	heatmap = np.zeros((17, target_size, target_size), dtype=np.float32)
-	resize_coeffient = target_size * 1.0 / input_height
+	heatmap = np.zeros((9, target_size, target_size), dtype=np.float32)
+	resize_coeffient_y = target_size * 1.0 / raw_height
+	resize_coeffient_x = target_size * 1.0 / raw_width
 
 	for idx in range(0, len(dense_tensor_x)):
 		if dense_tensor_x[idx] < 0 or dense_tensor_y[idx] < 0:
 				continue
-		put_heatmap(heatmap, idx, (dense_tensor_x[idx] * resize_coeffient, dense_tensor_y[idx] * resize_coeffient), 3.0)
+		put_heatmap(heatmap, idx, (dense_tensor_x[idx] * resize_coeffient_x, dense_tensor_y[idx] * resize_coeffient_y), 3.0)
 		
 	heatmap = heatmap.transpose((1, 2, 0))
 	# background
@@ -176,15 +248,23 @@ def decode_record(filename_queue):
 		height = tf.cast(features['image/height'], tf.int32)
 		width = tf.cast(features['image/width'], tf.int32)
 
-		#image = tf.reshape(image, [raw_height, raw_width, 3])
+		image = tf.reshape(image, [height, width, 3])
 
-		image = tf.reshape(image, [input_height, input_width, 3])
+		#image = tf.reshape(image, [input_height, input_width, 3])
 		image = tf.cast(image, tf.float32)
+		image = tf.image.resize_images(image, [input_height, input_width])
+		
+		if is_rgb:
+			#need to remove if the image is in bgr order
+			image = image[..., ::-1]
+		
 		print(image.get_shape())
 		dense_tensor_x = tf.sparse_tensor_to_dense(features['image/object/kp/kp_cor_x'])
 		dense_tensor_y = tf.sparse_tensor_to_dense(features['image/object/kp/kp_cor_y'])
 		#generate_heatmap(height, width, dense_tensor_x, dense_tensor_y)
 		inp = []
+		inp.append(height)
+		inp.append(width)
 		inp.append(input_height)
 		inp.append(input_width)
 		inp.append(dense_tensor_x)
@@ -244,7 +324,7 @@ def decode_record(filename_queue):
 		#print(heatmap.get_shape())
 		#image.set_shape([input_height, input_width, 3])
 
-		heatmap.set_shape([target_size, target_size, 17])
+		heatmap.set_shape([target_size, target_size, 9])
 		heatmap = tf.cast(heatmap, tf.float32)
 		#image = tf.cast(image, tf.float32)
 		#zero mean image in b,g,r order
@@ -321,6 +401,7 @@ def main(argv=None):
     g_mean = params['g_mean']
     b_mean = params['b_mean']
     norm_scale = params['norm_scale']
+    is_rgb = params['is_rgb']	
 
     #with tf.Graph().as_default(), tf.device("/cpu:0"):
     with tf.Graph().as_default():
