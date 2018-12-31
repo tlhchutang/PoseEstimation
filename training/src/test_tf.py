@@ -25,8 +25,18 @@ norm = tf.constant([1, 2, 3, 4])
 norm = tf.tile(norm, [6])
 norm = tf.reshape(norm, [2, 3, 4])
 
+
+#test gather
+a = tf.tile(a, [5])
+a = tf.reshape(a, [-1, 5])
+indice = tf.constant([0, 2, 4])
+
+c = tf.gather(a, indice, axis = -1)
+
 concated = tf.concat(norm, 1)
 with tf.Session() as sess:
 	#print (sess.run(heatmap))
-	print(sess.run(norm))
-	print(sess.run(concated))
+	#print(sess.run(norm))
+	#print(sess.run(concated))
+	print(sess.run(a))
+	print(sess.run(c))

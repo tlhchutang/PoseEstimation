@@ -35,7 +35,7 @@ g_mean = 113.75
 b_mean = 106.56
 norm_scale = 0.176
 
-is_rgb = False
+is_rgb = True
 
 '''
 def get_input(batchsize, epoch, is_train=True):
@@ -215,7 +215,7 @@ def generate_heatmap(raw_height, raw_width, height, width, dense_tensor_x, dense
 		heatmap = cv2.resize(heatmap, (target_size, target_size), interpolation=cv2.INTER_NEAREST)
 	'''
 	#directly generate resized heatmap
-	heatmap = np.zeros((9, target_size, target_size), dtype=np.float32)
+	heatmap = np.zeros((17, target_size, target_size), dtype=np.float32)
 	resize_coeffient_y = target_size * 1.0 / raw_height
 	resize_coeffient_x = target_size * 1.0 / raw_width
 
@@ -254,7 +254,7 @@ def decode_record(filename_queue):
 		image = tf.cast(image, tf.float32)
 		image = tf.image.resize_images(image, [input_height, input_width])
 		
-		if is_rgb:
+		if not is_rgb:
 			#need to remove if the image is in bgr order
 			image = image[..., ::-1]
 		
@@ -324,7 +324,7 @@ def decode_record(filename_queue):
 		#print(heatmap.get_shape())
 		#image.set_shape([input_height, input_width, 3])
 
-		heatmap.set_shape([target_size, target_size, 9])
+		heatmap.set_shape([target_size, target_size, 17])
 		heatmap = tf.cast(heatmap, tf.float32)
 		#image = tf.cast(image, tf.float32)
 		#zero mean image in b,g,r order
@@ -467,13 +467,15 @@ def main(argv=None):
 
         saver = tf.train.Saver(max_to_keep=100)
 
+        
         tf.summary.scalar("learning_rate", learning_rate)
         tf.summary.scalar("loss", loss)
         tf.summary.scalar("loss_lastlayer_heat", last_heat_loss)
         summary_merge_op = tf.summary.merge_all()
-
-        pred_result_image = tf.placeholder(tf.float32, shape=[params['val_batchsize'], 480, 640, 3])
-        pred_result__summary = tf.summary.image("pred_result_image", pred_result_image, params['val_batchsize'])
+       
+        sum_heatmap = tf.reduce_sum(valid_pred_heat, 3, keep_dims = True) 
+        pred_result_summary = tf.summary.image("pred_result_image", sum_heatmap, max_outputs=6, collections=None, family='keypoints')
+        input_image_summary = tf.summary.image("input_image", input_image, max_outputs=6, collections=None, family='keypoints')
 
 
         #for resume a training
@@ -539,28 +541,11 @@ def main(argv=None):
                            input_image: val_images,
                            input_heat: val_labels
                         }
-                        valid_loss_value, valid_lh_loss, valid_p_heat = sess.run(
-                           [valid_loss, valid_last_heat_loss, valid_pred_heat], feed_dict = val_feed_dict)
+                        valid_loss_value, valid_lh_loss, valid_p_heat, predictions, input_images = sess.run(
+                           [valid_loss, valid_last_heat_loss, valid_pred_heat, pred_result_summary, input_image_summary], feed_dict = val_feed_dict)
 
-                        result = []
-                        for index in range(params['val_batchsize']):
-                            r = CocoPose.display_image(
-                                    val_images[index,:,:,:],
-                                    val_labels[index,:,:,:],
-                                    valid_p_heat[index,:,:,:],
-                                    True
-                                )
-                            result.append(
-                                r.astype(np.float32)
-                            )
-
-                        comparsion_of_pred_result = sess.run(
-                            pred_result__summary,
-                            feed_dict={
-                                pred_result_image: np.array(result)
-                            }
-                        )
-                        summary_writer.add_summary(comparsion_of_pred_result, step)
+                        summary_writer.add_summary(input_images, step)
+                        summary_writer.add_summary(predictions, step)
                         
 
                 # print train info

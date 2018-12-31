@@ -139,7 +139,7 @@ def draw_keypoints(image, kpoints, values):
 			color = (colors[idx][0], colors[idx][1], colors[idx][2])
 			cv2.circle(show_image, kpoints[idx], 4, color, 4)
 	cv2.imshow('result', show_image)
-	cv2.waitKey(10000)
+	cv2.waitKey(8000)
 	
 def parse_idx(height, width, idx):
 	if idx > height * width:
@@ -154,7 +154,7 @@ def run_with_frozen_pb(img_path, input_w_h, frozen_graph, output_node_names):
     import cv2
     import numpy as np
     import os
-    os.environ['CUDA_VISIBLE_DEVICES'] = '0'
+    os.environ['CUDA_VISIBLE_DEVICES'] = '1'
     from dataset_prepare import CocoPose
     with tf.gfile.GFile(frozen_graph, "rb") as f:
         restored_graph_def = tf.GraphDef()
@@ -186,7 +186,7 @@ def run_with_frozen_pb(img_path, input_w_h, frozen_graph, output_node_names):
 
     image_input = image_input * scale
 
-    #image_input = image_input[:,:,::-1]
+    image_input = image_input[:,:,::-1]
 
     with tf.Session() as sess:
         heatmaps = sess.run(output, feed_dict={image: [image_input]})
@@ -227,8 +227,8 @@ if __name__ == '__main__':
     #metric_prefix(256, 256)
     run_with_frozen_pb(
          #"/raid/tangc/ai_challenger/train/beb4db2939c175401da038eb64e7e39c51bbac7e.jpg",
-         "/raid/tangc/keypoint_test/p6.png",
-         #"/raid/tangc/ai_challenger/train/77c091e7fc4b3b2c307599ff5b83eb33f36587f8.jpg",
+         #"/raid/tangc/keypoint_test/p2.png",
+         "/raid/tangc/ai_challenger/train/f3ca94af95fc6c98fc35453ada415abe1fadc9ea.jpg",
          192,
          "./frozen_pb/frozen_model.pb",
          "Convolutional_Pose_Machine/stage_5_out"
